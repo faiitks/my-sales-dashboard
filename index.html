@@ -519,7 +519,7 @@
         <!-- Table Tabs -->
         <div class="flex flex-wrap gap-1.5 bg-slate-100 p-1 rounded-xl">
           <button onclick="setTableTab('allCustomers')" id="tab-allCustomers" class="px-3 py-1.5 text-xs font-semibold rounded-lg transition bg-white text-emerald-800 shadow-sm">
-            👥 สรุปลูกค้าทั้งหมด (ยอดขาย • เดือนที่ซื้อ • ซื้อล่าสุด • YoY)
+            👥 สรุปลูกค้าทั้งหมด
           </button>
           <button onclick="setTableTab('topBuyers')" id="tab-topBuyers" class="px-3 py-1.5 text-xs font-semibold rounded-lg transition text-slate-600 hover:text-slate-900">
             🏆 จัดอันดับลูกค้ายอดสูงสุด
@@ -546,6 +546,29 @@
             <!-- Dynamic Rows -->
           </tbody>
         </table>
+      </div>
+
+      <!-- NEW: Pagination Bar (แสดงทีละ 50 รายการ + เลือกหน้า) -->
+      <div class="p-3.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600" id="paginationControls">
+        <div class="flex items-center gap-2">
+          <span>แสดงหน้าละ:</span>
+          <select id="pageSizeSelect" onchange="changePageSize(this.value)" class="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs focus:ring-emerald-500 font-semibold">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+          </select>
+          <span id="pageInfoText" class="text-slate-500 ml-2">แสดง 1 - 50 จากทั้งหมด 0 รายการ</span>
+        </div>
+
+        <div class="flex items-center gap-1.5" id="pageButtons">
+          <button onclick="prevPage()" id="btnPrevPage" class="px-2.5 py-1 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed font-medium transition">
+            ◀ ก่อนหน้า
+          </button>
+          <span id="pageNumberDisplay" class="px-3 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold rounded-lg">1</span>
+          <button onclick="nextPage()" id="btnNextPage" class="px-2.5 py-1 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed font-medium transition">
+            ถัดไป ▶
+          </button>
+        </div>
       </div>
     </div>
 
@@ -730,6 +753,10 @@
     let isLiveGoogleSheets = true;
     let sheetsApiUrl = 'https://script.google.com/macros/s/AKfycbytxMApQW9Tx17lfn4gO1n1hLAD6dvG9NXxtk-_oTakXEzaYaiIWPt4polNvvzMbs_Lgw/exec';
 
+    // Pagination state
+    let currentPage = 1;
+    let pageSize = 50;
+
     // Formatters
     const formatCurrency = (val) => '฿' + Number(val || 0).toLocaleString('th-TH');
     const calcYoY = (curr, prev) => {
@@ -737,8 +764,17 @@
       return Number((((curr - prev) / prev) * 100).toFixed(1));
     };
 
-    // --- Master Transactions & Customer Database (Derived from Google Sheets Structure) ---
-    // Enriched with category and generic names for universal search
+    // Load initial cached data from LocalStorage if available for instant display
+    const LOCAL_CACHE_KEY = 'agri_sales_data_cache';
+    let ACTIVE_CUSTOMERS = [];
+    try {
+      const cached = localStorage.getItem(LOCAL_CACHE_KEY);
+      if (cached) {
+        ACTIVE_CUSTOMERS = JSON.parse(cached);
+      }
+    } catch (e) {}
+
+    // Fallback Demo Customers if no cache
     const DEMO_CUSTOMERS = [
       {
         id: "CUST-001",
@@ -767,160 +803,12 @@
           { code: "04-3411-35000", name: "คายีซาเรส 4 ลิตร 1*6", supp: "ทวีชัยเคมีเกษตร", category: "ยาฆ่าหญ้า", generic: "กลูโฟซิเนต", qty68: 450, qty69: 620, unit: "แกลลอน", s68: 396000, s69: 545600, months: ["มี.ค.", "ส.ค."] },
           { code: "01-0840-00002", name: "โกลแจ็คสัน 1 ลิตร 1*12", supp: "โกลบอลครอปส์", category: "ยาฆ่าแมลง", generic: "ฟิโพรนิล", qty68: 300, qty69: 390, unit: "ขวด", s68: 180000, s69: 234000, months: ["พ.ค.", "ส.ค."] }
         ]
-      },
-      {
-        id: "CUST-003",
-        name: "ร้าน ป.เกษตรและการค้า",
-        type: "4-ร้านค้า",
-        branch: "ปากช่อง",
-        lastPurchaseDate: "26 ม.ค. 69",
-        purchasedMonths: ["ม.ค.", "ก.พ.", "พ.ค.", "ก.ค.", "ต.ค."],
-        items: [
-          { code: "26-2537-00000", name: "บีนีเวีย 250 ซีซี 1*12", supp: "โซตัส", category: "ยาฆ่าแมลง", generic: "ไซแอนทรานิลิโพรล", qty68: 140, qty69: 190, unit: "ขวด", s68: 357000, s69: 484500, months: ["ม.ค.", "พ.ค."] },
-          { code: "23-4323-23001", name: "ทีเอที ไทอะมีทอกแซม25 1 กก.", supp: "เกษตรยูไนเต็ด", category: "ยาฆ่าแมลง", generic: "ไทอะมีทอกแซม", qty68: 250, qty69: 310, unit: "ถุง", s68: 300000, s69: 372000, months: ["ก.พ.", "ก.ค."] },
-          { code: "70-2712-06001", name: "27-12-06 ซีพี (หมอดิน) 50 กก.", supp: "เจริญโภคภัณฑ์โปรดิวส", category: "ปุ๋ย/ปุ๋ยเกล็ด", generic: "ปุ๋ยเคมี", qty68: 180, qty69: 230, unit: "กระสอบ", s68: 369000, s69: 471500, months: ["ม.ค.", "ต.ค."] },
-          { code: "43-2304-00001", name: "แอนทราโคล 1 กก. 1*12", supp: "ไบเออร์ไทย", category: "ยาโรค/เชื้อรา", generic: "โพรพิเนบ", qty68: 160, qty69: 210, unit: "ถุง", s68: 187200, s69: 245700, months: ["พ.ค.", "ต.ค."] }
-        ]
-      },
-      {
-        id: "CUST-004",
-        name: "หจก. กวงเจริญผลเคมีเกษตร",
-        type: "4-ร้านค้า",
-        branch: "ชัยภูมิ",
-        lastPurchaseDate: "25 ม.ค. 69",
-        purchasedMonths: ["ม.ค.", "เม.ย.", "มิ.ย.", "ก.ค.", "ส.ค."],
-        items: [
-          { code: "31-3623-00000", name: "โฟลิเทค 025EC 100 ซีซี 1*50", supp: "ไบเออร์ไทย", category: "ยาฆ่าแมลง", generic: "เบต้า-ไซฟลูทริน", qty68: 650, qty69: 820, unit: "ขวด", s68: 318500, s69: 401800, months: ["ม.ค.", "มิ.ย."] },
-          { code: "30-3724-00004", name: "พรีวาธอน 5SC 20 ซีซี 1*15*10ซอง", supp: "โกลบอลลิสอะโกรไซแอนส์", category: "ยาฆ่าแมลง", generic: "คลอแรนทรานิลิโพรล", qty68: 700, qty69: 850, unit: "ซอง", s68: 364000, s69: 442000, months: ["ม.ค.", "ก.ค."] },
-          { code: "01-3611-27000", name: "กาลแล็นท์ ซุปเปอร์ 100 ซีซี 1*50", supp: "โกลบอลลิสอะโกรไซแอนส์", category: "ยาฆ่าหญ้า", generic: "ฮาโลซีฟอป-พี-เมทิล", qty68: 220, qty69: 280, unit: "ขวด", s68: 303600, s69: 386400, months: ["เม.ย.", "ส.ค."] }
-        ]
-      },
-      {
-        id: "CUST-005",
-        name: "ร้าน ขอนแก่นกิจเกษตร (สาขาแก้งคร้อ)",
-        type: "4-ร้านค้า",
-        branch: "ชัยภูมิ",
-        lastPurchaseDate: "24 ม.ค. 69",
-        purchasedMonths: ["ม.ค.", "มี.ค.", "พ.ค.", "ก.ย."],
-        items: [
-          { code: "70-1808-08000", name: "18-08-08 มงกุฎ 50 กก.", supp: "เทอราโกรเฟอร์ติไลเซอร์", category: "ปุ๋ย/ปุ๋ยเกล็ด", generic: "ปุ๋ยเคมี", qty68: 450, qty69: 560, unit: "กระสอบ", s68: 346500, s69: 431200, months: ["ม.ค.", "พ.ค."] },
-          { code: "11-3311-34003", name: "ซูมิโซย่า 5 กรัม(10ซอง) 1*100", supp: "ที.เจ.ซี.เคมี", category: "ยาฆ่าหญ้า", generic: "ฟลูมิออกซาซิน", qty68: 380, qty69: 460, unit: "กล่อง", s68: 307800, s69: 372600, months: ["ม.ค.", "ก.ย."] },
-          { code: "70-1616-08001", name: "16-16-08 รุ่งอรุณ 50 กก.", supp: "ปุ๋ยไวกิ้ง", category: "ปุ๋ย/ปุ๋ยเกล็ด", generic: "ปุ๋ยเคมี", qty68: 200, qty69: 240, unit: "กระสอบ", s68: 182000, s69: 218400, months: ["มี.ค.", "พ.ค."] }
-        ]
-      },
-      {
-        id: "CUST-006",
-        name: "ร้าน เก๋เมล็ดพันธุ์",
-        type: "4-ร้านค้า",
-        branch: "โคราช",
-        lastPurchaseDate: "23 ม.ค. 69",
-        purchasedMonths: ["ม.ค.", "พ.ค.", "มิ.ย.", "ส.ค."],
-        items: [
-          { code: "43-3511-25000", name: "เอราโซนิล 1 ลิตร 1*18", supp: "เอราวัณเคมีเกษตร", category: "ยาฆ่าหญ้า", generic: "โคลมาโซน+โพรพานิล", qty68: 320, qty69: 410, unit: "ขวด", s68: 288000, s69: 369000, months: ["ม.ค.", "มิ.ย."] },
-          { code: "43-3335-00001", name: "อามูเร่ 300EC 500 ซีซี 1*24", supp: "ซินเจนทา ครอป", category: "ยาโรค/เชื้อรา", generic: "ไดฟีโนโคนาโซล+โพรพิโคนาโซล", qty68: 190, qty69: 240, unit: "ขวด", s68: 285000, s69: 360000, months: ["ม.ค.", "ส.ค."] },
-          { code: "20-2300-00001", name: "แดนท๊อซ 100 กรัม 1*24", supp: "ที.เจ.ซี.เคมี", category: "ยาฆ่าแมลง", generic: "โคลไทอะนิดิน", qty68: 260, qty69: 310, unit: "ซอง", s68: 182000, s69: 217000, months: ["พ.ค.", "มิ.ย."] }
-        ]
-      },
-      {
-        id: "CUST-007",
-        name: "หจก. ศิริเกษตร(ปักธงชัย)",
-        type: "4-ร้านค้า",
-        branch: "ปากช่อง",
-        lastPurchaseDate: "22 ม.ค. 69",
-        purchasedMonths: ["ม.ค.", "เม.ย.", "ก.ค.", "พ.ย."],
-        items: [
-          { code: "35-3300-00000", name: "โรม่า 250 ซีซี 1*24", supp: "เทพวัฒนา แพลนเตอร์", category: "ยาฆ่าแมลง", generic: "อินดอกซาคาร์บ", qty68: 220, qty69: 280, unit: "ขวด", s68: 297000, s69: 378000, months: ["ม.ค.", "ก.ค."] },
-          { code: "33-2004-33000", name: "มีเดียร์ คลาสแมน (70 ลิตร) 25 กก.", supp: "วาย.วี.พี.อินเตอร์เทรด", category: "ปุ๋ยอินทรีย์/วัสดุปลูก", generic: "วัสดุปลูก/พีทมอส", qty68: 310, qty69: 390, unit: "กระสอบ", s68: 294500, s69: 370500, months: ["ม.ค.", "เม.ย."] },
-          { code: "70-0603-03001", name: "06-03-03 ดวงตะวันเพชร 50 กก.", supp: "ดวงตะวันเพชร", category: "ปุ๋ย/ปุ๋ยเกล็ด", generic: "ปุ๋ยอินทรีย์เคมี", qty68: 240, qty69: 290, unit: "กระสอบ", s68: 295200, s69: 356700, months: ["ม.ค.", "พ.ย."] }
-        ]
-      },
-      {
-        id: "CUST-008",
-        name: "บริษัท ฉั่วฮ่อหลี การเกษตร จำกัด",
-        type: "4-ร้านค้า",
-        branch: "โคราช",
-        lastPurchaseDate: "20 ม.ค. 69",
-        purchasedMonths: ["ม.ค.", "พ.ค.", "ก.ค.", "ต.ค."],
-        items: [
-          { code: "26-0425-00000", name: "บีคาโน 100 ซีซี 1*20", supp: "บาก้า โกรว์เคมีคอล", category: "ยาฆ่าหญ้า", generic: "อินดาซิแฟลม", qty68: 180, qty69: 230, unit: "ขวด", s68: 324000, s69: 414000, months: ["ม.ค.", "ก.ค."] },
-          { code: "37-0108-24000", name: "เวสโก้ 08-24-24 1 กก. 1*25", supp: "เวสโก้ เคมี ประเทศไทย", category: "ปุ๋ย/ปุ๋ยเกล็ด", generic: "ปุ๋ยเกล็ด", qty68: 350, qty69: 420, unit: "ถุง", s68: 234500, s69: 281400, months: ["ม.ค.", "ต.ค."] }
-        ]
-      },
-      {
-        id: "CUST-009",
-        name: "บริษัท กลุ่มผู้เลี้ยงโคนมหนองสาหร่าย จำกัด",
-        type: "3-โครงการ/ราชการ",
-        branch: "ปากช่อง",
-        lastPurchaseDate: "18 ม.ค. 69",
-        purchasedMonths: ["ม.ค.", "มี.ค.", "มิ.ย.", "ก.ย."],
-        items: [
-          { code: "70-4600-00003", name: "46-00-00 รุ่งอรุณ(โฟม) 50 กก.", supp: "ปุ๋ยไวกิ้ง", category: "ปุ๋ย/ปุ๋ยเกล็ด", generic: "ปุ๋ยยูเรีย", qty68: 420, qty69: 520, unit: "กระสอบ", s68: 319200, s69: 395200, months: ["ม.ค.", "มิ.ย."] },
-          { code: "70-1515-15002", name: "15-15-15 เรือใบ(เม็ดฟ้า) 50กก.", supp: "ไฮโดรไทย", category: "ปุ๋ย/ปุ๋ยเกล็ด", generic: "ปุ๋ยเคมีคอมปาวด์", qty68: 220, qty69: 270, unit: "กระสอบ", s68: 277200, s69: 340200, months: ["มี.ค.", "ก.ย."] }
-        ]
-      },
-      {
-        id: "CUST-010",
-        name: "บ้านไร่ปวริศ",
-        type: "2-บริษัท",
-        branch: "ปากช่อง",
-        lastPurchaseDate: "17 ม.ค. 69",
-        purchasedMonths: ["ม.ค.", "มี.ค.", "ก.ค."],
-        items: [
-          { code: "23-3504-11001", name: "เทอร์ราคลอร์ซุปเปอร์-X E 500 ซีซี 1*12", supp: "โซตัส", category: "ยาโรค/เชื้อรา", generic: "อีทริไดอะโซล+ควินโตซีน", qty68: 140, qty69: 175, unit: "ขวด", s68: 193200, s69: 241500, months: ["ม.ค.", "มี.ค."] },
-          { code: "27-2111-44000", name: "โปแตสเซียมฮิวเมท แบล็กเอิร์ธ 25 กก.", supp: "ดวงตะวันเพชร", category: "ปรับสภาพดิน/น้ำ", generic: "ฮิวเมท", qty68: 80, qty69: 110, unit: "กระสอบ", s68: 184000, s69: 253000, months: ["ม.ค.", "ก.ค."] },
-          { code: "33-3304-11003", name: "แมมมอท แคลเซียมโบรอน 4 ลิตร 1*4", supp: "เทพวัฒนา แพลนเตอร์", category: "ฮอร์โมนอาหารเสริม", generic: "แคลเซียมโบรอน", qty68: 95, qty69: 125, unit: "แกลลอน", s68: 114000, s69: 150000, months: ["มี.ค.", "ก.ค."] }
-        ]
-      },
-      {
-        id: "CUST-011",
-        name: "การยางแห่งประเทศไทยจังหวัดนครราชสีมา",
-        type: "2-บริษัท",
-        branch: "โคราช",
-        lastPurchaseDate: "15 ม.ค. 69",
-        purchasedMonths: ["ม.ค.", "พ.ค.", "ส.ค."],
-        items: [
-          { code: "70-1846-00001", name: "18-46-00 เรือใบ 50 กก.", supp: "ไฮโดรไทย", category: "ปุ๋ย/ปุ๋ยเกล็ด", generic: "แดป (DAP)", qty68: 240, qty69: 290, unit: "กระสอบ", s68: 297600, s69: 359600, months: ["ม.ค.", "พ.ค."] },
-          { code: "70-0000-60009", name: "00-00-60 ม้าบิน (เม็ดแดง) 50 กก.", supp: "ไอ.ซี.พี.เฟอทิไลเซอร์", category: "ปุ๋ย/ปุ๋ยเกล็ด", generic: "โพแทสเซียมคลอไรด์", qty68: 260, qty69: 310, unit: "กระสอบ", s68: 202800, s69: 241800, months: ["ม.ค.", "ส.ค."] }
-        ]
-      },
-      {
-        id: "CUST-012",
-        name: "ร้าน ธนาพรการเกษตร",
-        type: "4-ร้านค้า",
-        branch: "โคราช",
-        lastPurchaseDate: "14 ม.ค. 69",
-        purchasedMonths: ["ม.ค.", "มี.ค.", "มิ.ย."],
-        items: [
-          { code: "26-0430-20000", name: "บีเคเพนดิ CS 2ลิตร+บีเคซาพิค 250 ซีซี", supp: "บาก้า โกรว์เคมีคอล", category: "ยาฆ่าหญ้า", generic: "เพนดิเมทาลิน+อิมมาซาพิก", qty68: 150, qty69: 195, unit: "ชุด", s68: 270000, s69: 351000, months: ["ม.ค.", "มี.ค."] },
-          { code: "11-3311-34002", name: "ซูมิโซย่า 100 กรัม 1*50", supp: "ที.เจ.ซี.เคมี", category: "ยาฆ่าหญ้า", generic: "ฟลูมิออกซาซิน", qty68: 210, qty69: 260, unit: "กล่อง", s68: 218400, s69: 270400, months: ["ม.ค.", "มิ.ย."] }
-        ]
-      },
-      {
-        id: "CUST-013",
-        name: "กลุ่มเกษตรกรแปลงใหญ่อ้อย ชัยภูมิ",
-        type: "1-เกษตรกร",
-        branch: "ชัยภูมิ",
-        lastPurchaseDate: "12 ม.ค. 69",
-        purchasedMonths: ["ม.ค.", "เม.ย.", "พ.ค."],
-        items: [
-          { code: "11-0130-28000", name: "ซูก้า โพสต์(ผง) 1 กก. 1*20", supp: "ซาโกร", category: "ยาฆ่าหญ้า", generic: "อะมีทรีน", qty68: 380, qty69: 460, unit: "ถุง", s68: 186200, s69: 225400, months: ["ม.ค.", "เม.ย."] },
-          { code: "33-1143-00000", name: "มายซีน แอล 1 ลิตร 1*20", supp: "ซาโกร", category: "ยาฆ่าหญ้า", generic: "อะทราซีน", qty68: 420, qty69: 510, unit: "ขวด", s68: 184800, s69: 224400, months: ["เม.ย.", "พ.ค."] }
-        ]
-      },
-      {
-        id: "CUST-014",
-        name: "บริษัท ไพโอเนียไฮ-เบรด(ไทยแลนด์) จำกัด",
-        type: "5-Supplier",
-        branch: "ปากช่อง",
-        lastPurchaseDate: "10 ม.ค. 69",
-        purchasedMonths: ["ม.ค.", "พ.ค."],
-        items: [
-          { code: "60-0230-30025", name: "ข้าวโพด ไพโอเนีย P4333 10 กก. (3.5หุน)", supp: "ไพโอเนียไฮ-เบรด", category: "เมล็ดพันธุ์", generic: "เมล็ดพันธุ์ข้าวโพดเลี้ยงสัตว์", qty68: 180, qty69: 225, unit: "ถุง", s68: 340200, s69: 425250, months: ["ม.ค.", "พ.ค."] }
-        ]
       }
     ];
 
-    let ACTIVE_CUSTOMERS = [...DEMO_CUSTOMERS];
+    if (!ACTIVE_CUSTOMERS || ACTIVE_CUSTOMERS.length === 0) {
+      ACTIVE_CUSTOMERS = [...DEMO_CUSTOMERS];
+    }
 
     // Chart.js Instances
     let customerRankingChart = null;
@@ -931,25 +819,20 @@
       const term = universalSearchTerm.trim().toLowerCase();
 
       return ACTIVE_CUSTOMERS.filter(c => {
-        // 1. Branch filter
         const matchBranch = (currentBranch === 'all') || (c.branch === currentBranch);
         if (!matchBranch) return false;
 
-        // 2. Customer Type checkbox filter
         const matchType = selectedCustTypes.includes(c.type);
         if (!matchType) return false;
 
-        // 3. Month filter: check if customer has purchases in any of the selected months
         const matchMonth = c.purchasedMonths.some(m => selectedMonths.includes(m));
         if (!matchMonth) return false;
 
-        // 4. Universal Search: can search across Customer Name, Supplier, Product Name, Product Code, Category, Generic Name
         if (term) {
           const matchCustName = c.name.toLowerCase().includes(term);
           const matchCustType = c.type.toLowerCase().includes(term);
           const matchBranchName = c.branch.toLowerCase().includes(term);
 
-          // Check inside purchased items
           const matchItems = c.items.some(it => 
             it.name.toLowerCase().includes(term) ||
             it.code.toLowerCase().includes(term) ||
@@ -965,12 +848,10 @@
 
         return true;
       }).map(cust => {
-        // Calculate dynamically based on selected months and year checkboxes
         let dynSales68 = 0;
         let dynSales69 = 0;
 
         cust.items.forEach(it => {
-          // Check if item was purchased in the filtered months
           const commonMonths = it.months.filter(m => selectedMonths.includes(m));
           if (commonMonths.length > 0) {
             const ratio = it.months.length > 0 ? (commonMonths.length / it.months.length) : 1;
@@ -988,33 +869,24 @@
       });
     }
 
-    // --- Google Sheets Live Sync Engine ---
-    function openSheetsSyncModal() {
-      const modal = document.getElementById('sheetsSyncModal');
-      const input = document.getElementById('sheetsApiUrlInput');
-      if (input && sheetsApiUrl) input.value = sheetsApiUrl;
-      if (modal) modal.classList.remove('hidden');
-    }
-
-    function closeSheetsSyncModal() {
-      const modal = document.getElementById('sheetsSyncModal');
-      if (modal) modal.classList.add('hidden');
-    }
-
-    async function testAndSaveSheetsUrl() {
+    // --- Fast Google Sheets Sync Engine (With Fast Background Sync & Storage Cache) ---
+    async function testAndSaveSheetsUrl(isBackground = false) {
       const urlInput = document.getElementById('sheetsApiUrlInput');
-      const url = urlInput ? urlInput.value.trim() : '';
-      if (!url) {
-        showToast('กรุณาระบุ Web App URL');
-        return;
-      }
+      const url = urlInput ? urlInput.value.trim() : sheetsApiUrl;
+      if (!url) return;
 
       const btn = document.getElementById('btnSaveSync');
-      if (btn) btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> <span>กำลังเชื่อมต่อ...</span>`;
+      const syncStatus = document.getElementById('syncStatusText');
+      if (btn && !isBackground) btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> <span>กำลังเชื่อมต่อ...</span>`;
+      if (syncStatus) syncStatus.innerText = 'กำลังซิงค์...';
       lucide.createIcons();
 
       try {
-        const res = await fetch(url);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout limit
+
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
         const data = await res.json();
 
         if (Array.isArray(data) && data.length > 0) {
@@ -1022,18 +894,23 @@
           sheetsApiUrl = url;
           isLiveGoogleSheets = true;
           localStorage.setItem('sheets_sync_url', url);
+          try {
+            localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(data));
+          } catch(e) {}
 
           document.getElementById('liveSyncBanner').classList.remove('hidden');
-          document.getElementById('syncStatusText').innerText = 'เชื่อมต่อ Google Sheets แล้ว';
+          if (syncStatus) syncStatus.innerText = `Google Sheets (${data.length} ราย)`;
           closeSheetsSyncModal();
-          showToast(`เชื่อมต่อสำเร็จ! ดึงข้อมูลลูกค้า ${data.length} รายการจาก Google Sheets แล้ว`);
+          showToast(`ซิงค์สำเร็จ! โหลดข้อมูลลูกค้า ${data.length} รายการแล้ว`);
+          currentPage = 1;
           refreshAllViews();
         } else {
-          showToast('ไม่สามารถอ่านข้อมูลได้ กรุณาตรวจสอบสิทธิ์การเข้าถึงเป็น Anyone');
+          if (!isBackground) showToast('ไม่พบข้อมูลใน Sheet กรุณาตรวจสอบ Deploy permissions');
         }
       } catch (err) {
         console.error("Sheets Fetch Error:", err);
-        showToast('เชื่อมต่อไม่สำเร็จ: กรุณาตรวจสอบว่า Deploy สิทธิ์เป็น Anyone หรือยัง');
+        if (syncStatus) syncStatus.innerText = 'เชื่อมต่อไม่สำเร็จ';
+        if (!isBackground) showToast('เชื่อมต่อล่าช้า: กำลังแสดงข้อมูลแคชเดิมแทน');
       } finally {
         if (btn) btn.innerHTML = `<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> <span>เชื่อมต่อและดึงข้อมูลสด</span>`;
         lucide.createIcons();
@@ -1043,331 +920,57 @@
     async function refreshData() {
       const icon = document.getElementById('refreshIcon');
       if (icon) icon.classList.add('animate-spin');
-
-      if (isLiveGoogleSheets && sheetsApiUrl) {
-        try {
-          const res = await fetch(sheetsApiUrl + '?t=' + Date.now());
-          const data = await res.json();
-          if (Array.isArray(data)) {
-            ACTIVE_CUSTOMERS = data;
-            showToast('อัปเดตข้อมูลล่าสุดจาก Google Sheets เรียบร้อยแล้ว');
-          }
-        } catch (e) {
-          showToast('เกิดข้อผิดพลาดในการดึงข้อมูลจาก Sheets');
-        }
-      } else {
-        showToast('รีเฟรชการคำนวณแดชบอร์ดเรียบร้อยแล้ว');
-      }
-
-      refreshAllViews();
+      await testAndSaveSheetsUrl(false);
       setTimeout(() => {
         if (icon) icon.classList.remove('animate-spin');
-      }, 600);
+      }, 500);
     }
 
-    function switchToDemoData() {
-      ACTIVE_CUSTOMERS = [...DEMO_CUSTOMERS];
-      isLiveGoogleSheets = false;
-      document.getElementById('liveSyncBanner').classList.add('hidden');
-      document.getElementById('syncStatusText').innerText = 'เชื่อมต่อ Google Sheets';
-      showToast('สลับกลับมาใช้ข้อมูลจำลอง (Demo Data)');
-      refreshAllViews();
+    // --- Pagination Controls ---
+    function changePageSize(val) {
+      pageSize = parseInt(val, 10);
+      currentPage = 1;
+      renderMatrixTable();
     }
 
-    // --- Chart Initializations ---
-    function initCharts() {
-      // 1. Customer Ranking YoY Chart (Bar Chart)
-      const ctxRanking = document.getElementById('customerRankingChart');
-      if (ctxRanking) {
-        customerRankingChart = new Chart(ctxRanking.getContext('2d'), {
-          type: 'bar',
-          data: {
-            labels: [],
-            datasets: [
-              {
-                label: 'ยอดซื้อปี 2568',
-                data: [],
-                backgroundColor: '#cbd5e1',
-                borderRadius: 6
-              },
-              {
-                label: 'ยอดซื้อปี 2569',
-                data: [],
-                backgroundColor: '#059669',
-                borderRadius: 6
-              }
-            ]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: false },
-              tooltip: {
-                callbacks: {
-                  label: function(context) {
-                    return context.dataset.label + ': ' + formatCurrency(context.raw);
-                  }
-                }
-              }
-            },
-            scales: {
-              y: {
-                beginAtZero: true,
-                ticks: {
-                  callback: value => '฿' + (value >= 1000000 ? (value / 1000000).toFixed(1) + 'M' : (value / 1000).toFixed(0) + 'K')
-                },
-                grid: { color: '#f1f5f9' }
-              },
-              x: {
-                grid: { display: false },
-                ticks: {
-                  font: { family: 'Kanit', size: 11 }
-                }
-              }
-            }
-          }
-        });
-      }
-
-      // 2. Monthly Trend YoY Chart (Bar / Line Chart)
-      const ctxMonthly = document.getElementById('monthlyTrendChart');
-      if (ctxMonthly) {
-        monthlyTrendChart = new Chart(ctxMonthly.getContext('2d'), {
-          type: 'bar',
-          data: {
-            labels: ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'],
-            datasets: [
-              {
-                type: 'bar',
-                label: 'ปี 2568',
-                data: [1200000, 1100000, 1450000, 1600000, 1980000, 1850000, 1720000, 1530000, 1200000, 950000, 800000, 600000],
-                backgroundColor: '#e2e8f0',
-                borderRadius: 4
-              },
-              {
-                type: 'bar',
-                label: 'ปี 2569',
-                data: [1420000, 1280000, 1690000, 1890000, 2350000, 2180000, 1990000, 1750000, 0, 0, 0, 0],
-                backgroundColor: '#10b981',
-                borderRadius: 4
-              }
-            ]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: {
-                position: 'top',
-                labels: { font: { family: 'Kanit', size: 11 }, boxWidth: 12 }
-              },
-              tooltip: {
-                callbacks: {
-                  label: function(context) {
-                    return context.dataset.label + ': ' + formatCurrency(context.raw);
-                  }
-                }
-              }
-            },
-            scales: {
-              y: {
-                beginAtZero: true,
-                ticks: {
-                  callback: value => '฿' + (value >= 1000000 ? (value / 1000000).toFixed(1) + 'M' : (value / 1000).toFixed(0) + 'K')
-                },
-                grid: { color: '#f8fafc' }
-              },
-              x: {
-                grid: { display: false },
-                ticks: { font: { family: 'Kanit', size: 10 } }
-              }
-            }
-          }
-        });
+    function prevPage() {
+      if (currentPage > 1) {
+        currentPage--;
+        renderMatrixTable();
       }
     }
 
-    // --- Dynamic KPI Recalculation ---
-    function updateKPIs() {
-      const filtered = getFilteredCustomers();
-      
-      let tot68 = 0, tot69 = 0;
-      let pk69 = 0, kr69 = 0, cp69 = 0;
-
-      filtered.forEach(c => {
-        tot68 += c.activeSales68;
-        tot69 += c.activeSales69;
-        if (c.branch === "ปากช่อง") pk69 += c.activeSales69;
-        if (c.branch === "โคราช")   kr69 += c.activeSales69;
-        if (c.branch === "ชัยภูมิ")  cp69 += c.activeSales69;
-      });
-
-      document.getElementById('kpiTotalSales').innerText = formatCurrency(tot69);
-      document.getElementById('kpiPrevTotal').innerText = formatCurrency(tot68);
-      const totYoy = calcYoY(tot69, tot68);
-      document.getElementById('kpiTotalYoY').innerHTML = `<i data-lucide="${totYoy >= 0 ? 'trending-up' : 'trending-down'}" class="w-3.5 h-3.5"></i> ${totYoy >= 0 ? '+' : ''}${totYoy}% YoY`;
-      document.getElementById('kpiTotalYoY').className = `font-bold ${totYoy >= 0 ? 'text-emerald-600' : 'text-rose-600'} flex items-center gap-0.5`;
-
-      document.getElementById('kpiPakChongSales').innerText = formatCurrency(pk69);
-      document.getElementById('kpiKoratSales').innerText = formatCurrency(kr69);
-      document.getElementById('kpiChaiyaphumSales').innerText = formatCurrency(cp69);
-      lucide.createIcons();
+    function nextPage() {
+      currentPage++;
+      renderMatrixTable();
     }
 
-    // --- Dynamic Branch Deep-Dive Panel ---
-    function renderDeepDivePanel() {
-      const activeBranch = currentDeepDiveBranch;
-      document.getElementById('ddBranchTitle').innerText = `สาขา${activeBranch}`;
+    function updatePaginationUI(totalItems) {
+      const totalPages = Math.ceil(totalItems / pageSize) || 1;
+      if (currentPage > totalPages) currentPage = totalPages;
 
-      const filtered = getFilteredCustomers().filter(c => c.branch === activeBranch);
-      
-      let branchSales68 = 0;
-      let branchSales69 = 0;
-      const productMap = {};
+      const startIdx = (currentPage - 1) * pageSize + 1;
+      const endIdx = Math.min(currentPage * pageSize, totalItems);
 
-      filtered.forEach(c => {
-        branchSales68 += c.activeSales68;
-        branchSales69 += c.activeSales69;
-
-        c.items.forEach(it => {
-          const commonMonths = it.months.filter(m => selectedMonths.includes(m));
-          if (commonMonths.length > 0) {
-            const ratio = it.months.length > 0 ? (commonMonths.length / it.months.length) : 1;
-            if (!productMap[it.code]) {
-              productMap[it.code] = {
-                code: it.code,
-                name: it.name,
-                supp: it.supp,
-                unit: it.unit,
-                qty68: 0,
-                qty69: 0,
-                s68: 0,
-                s69: 0
-              };
-            }
-            if (showYear68) {
-              productMap[it.code].qty68 += Math.round(it.qty68 * ratio);
-              productMap[it.code].s68 += it.s68 * ratio;
-            }
-            if (showYear69) {
-              productMap[it.code].qty69 += Math.round(it.qty69 * ratio);
-              productMap[it.code].s69 += it.s69 * ratio;
-            }
-          }
-        });
-      });
-
-      // Box 1: Sales
-      document.getElementById('ddSales68').innerText = formatCurrency(branchSales68);
-      document.getElementById('ddSales69').innerText = formatCurrency(branchSales69);
-      const branchGrowth = calcYoY(branchSales69, branchSales68);
-      const diff = branchSales69 - branchSales68;
-      document.getElementById('ddGrowthText').innerText = `${branchGrowth >= 0 ? '+' : ''}${branchGrowth}% YoY`;
-      document.getElementById('ddDiffAmount').innerText = `${diff >= 0 ? 'เพิ่มขึ้น +' : 'ลดลง '}${formatCurrency(Math.abs(diff))}`;
-      document.getElementById('ddDiffAmount').className = `text-xs ${diff >= 0 ? 'text-emerald-400' : 'text-rose-400'} font-medium mt-0.5`;
-
-      // Box 2: ขายให้ใครบ้าง
-      const custBox = document.getElementById('ddCustomerList');
-      custBox.innerHTML = '';
-      if (filtered.length === 0) {
-        custBox.innerHTML = '<div class="text-xs text-slate-400 py-3 text-center">ไม่มีข้อมูลตามเงื่อนไขที่เลือก</div>';
-      } else {
-        const sortedCusts = [...filtered].sort((a, b) => b.activeSales69 - a.activeSales69);
-        sortedCusts.slice(0, 3).forEach((c, idx) => {
-          custBox.innerHTML += `
-            <div onclick="openCustomerModal('${c.name}')" class="flex items-center justify-between p-2 rounded-lg bg-slate-900/60 hover:bg-slate-700/80 border border-slate-700/60 cursor-pointer transition group">
-              <div>
-                <div class="flex items-center gap-1.5">
-                  <span class="font-semibold text-slate-100 group-hover:text-emerald-400 transition">${idx + 1}. ${c.name}</span>
-                  <i data-lucide="external-link" class="w-3 h-3 text-slate-500 group-hover:text-emerald-400"></i>
-                </div>
-                <span class="text-[10px] text-slate-400">${c.type} • ยอดปี 69: ${formatCurrency(c.activeSales69)}</span>
-              </div>
-              <span class="text-xs font-bold ${c.activeYoY >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${c.activeYoY >= 0 ? '+' : ''}${c.activeYoY}%</span>
-            </div>
-          `;
-        });
+      const infoText = document.getElementById('pageInfoText');
+      if (infoText) {
+        infoText.innerText = totalItems > 0 
+          ? `แสดง ${startIdx.toLocaleString()} - ${endIdx.toLocaleString()} จากทั้งหมด ${totalItems.toLocaleString()} รายการ`
+          : `ไม่มีรายการข้อมูล`;
       }
 
-      // Box 3: ขายสินค้าอะไรบ้าง
-      const prodBox = document.getElementById('ddProductList');
-      prodBox.innerHTML = '';
-      const productList = Object.values(productMap).sort((a, b) => b.s69 - a.s69);
-
-      if (productList.length === 0) {
-        prodBox.innerHTML = '<div class="text-xs text-slate-400 py-3 text-center">ไม่พบรายการสินค้าตามเงื่อนไข</div>';
-      } else {
-        productList.slice(0, 3).forEach((p, idx) => {
-          const pGrowth = calcYoY(p.s69, p.s68);
-          const diffQty = p.qty69 - p.qty68;
-          prodBox.innerHTML += `
-            <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-700/60 space-y-1">
-              <div class="flex items-center justify-between">
-                <div>
-                  <span class="font-semibold text-slate-100 text-xs">${idx + 1}. ${p.name}</span>
-                  <div class="text-[10px] text-emerald-400 font-mono">รหัส: ${p.code} (${p.supp})</div>
-                </div>
-                <span class="text-[11px] font-bold ${pGrowth >= 0 ? 'text-amber-400' : 'text-rose-400'}">${pGrowth >= 0 ? '+' : ''}${pGrowth}%</span>
-              </div>
-              <div class="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
-                <span>ปี 68: <strong class="text-slate-300">${p.qty68.toLocaleString()} ${p.unit}</strong></span>
-                <span>ปี 69: <strong class="text-emerald-400">${p.qty69.toLocaleString()} ${p.unit}</strong> (${diffQty >= 0 ? '+' : ''}${diffQty.toLocaleString()})</span>
-              </div>
-              <div class="flex items-center justify-between text-[10px] text-slate-500 pt-0.5 border-t border-slate-800">
-                <span>มูลค่ายอดขายปี 69:</span>
-                <span class="font-medium text-slate-200">${formatCurrency(p.s69)}</span>
-              </div>
-            </div>
-          `;
-        });
+      const numDisplay = document.getElementById('pageNumberDisplay');
+      if (numDisplay) {
+        numDisplay.innerText = `หน้า ${currentPage} / ${totalPages}`;
       }
 
-      // Box 4: สรุปอินไซต์
-      const insightBox = document.getElementById('ddBranchInsight');
-      insightBox.innerHTML = `
-        ช่วงเวลาที่เลือกมียอดขายรวม <strong>${formatCurrency(branchSales69)}</strong> (${branchGrowth >= 0 ? '+' : ''}${branchGrowth}% YoY) 
-        มีสินค้าที่จำหน่ายได้ <strong>${productList.length} รายการ</strong> โดยสินค้าอันดับ 1 คือ 
-        <em class="text-emerald-300">${productList[0] ? productList[0].name : '-'}</em> จำนวน ${productList[0] ? productList[0].qty69.toLocaleString() + ' ' + productList[0].unit : '-'}
-      `;
-
-      lucide.createIcons();
+      const btnPrev = document.getElementById('btnPrevPage');
+      const btnNext = document.getElementById('btnNextPage');
+      if (btnPrev) btnPrev.disabled = (currentPage <= 1);
+      if (btnNext) btnNext.disabled = (currentPage >= totalPages);
     }
 
-    // --- Dynamic Customer Ranking Chart ---
-    function updateCustomerRankingChart() {
-      if (!customerRankingChart) return;
-      const filtered = getFilteredCustomers().sort((a, b) => b.activeSales69 - a.activeSales69);
-      const topList = filtered.slice(0, 6);
-
-      customerRankingChart.data.labels = topList.map(c => c.name);
-      customerRankingChart.data.datasets[0].data = showYear68 ? topList.map(c => c.activeSales68) : topList.map(() => 0);
-      customerRankingChart.data.datasets[1].data = showYear69 ? topList.map(c => c.activeSales69) : topList.map(() => 0);
-      customerRankingChart.update();
-    }
-
-    // --- Dynamic Monthly Trend Chart ---
-    function updateMonthlyTrendChart() {
-      if (!monthlyTrendChart) return;
-      const allMonths = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-      const baseMonthly68 = [1200000, 1100000, 1450000, 1600000, 1980000, 1850000, 1720000, 1530000, 1200000, 950000, 800000, 600000];
-      const baseMonthly69 = [1420000, 1280000, 1690000, 1890000, 2350000, 2180000, 1990000, 1750000, 0, 0, 0, 0];
-
-      // Branch multiplier
-      let factor = 1.0;
-      if (currentBranch === 'ปากช่อง') factor = 0.40;
-      if (currentBranch === 'โคราช') factor = 0.36;
-      if (currentBranch === 'ชัยภูมิ') factor = 0.24;
-
-      const filteredData68 = allMonths.map((m, i) => (selectedMonths.includes(m) && showYear68) ? Math.round(baseMonthly68[i] * factor) : 0);
-      const filteredData69 = allMonths.map((m, i) => (selectedMonths.includes(m) && showYear69) ? Math.round(baseMonthly69[i] * factor) : 0);
-
-      monthlyTrendChart.data.datasets[0].data = filteredData68;
-      monthlyTrendChart.data.datasets[1].data = filteredData69;
-      monthlyTrendChart.update();
-    }
-
-    // --- Dynamic Multi-Dimension Table Matrix ---
+    // --- Dynamic Multi-Dimension Table Matrix with Pagination ---
     function renderMatrixTable() {
       const thead = document.getElementById('matrixThead');
       const tbody = document.getElementById('matrixTbody');
@@ -1391,13 +994,19 @@
           </tr>
         `;
 
-        if (filteredCustomers.length === 0) {
+        const totalItems = filteredCustomers.length;
+        updatePaginationUI(totalItems);
+
+        if (totalItems === 0) {
           tbody.innerHTML = `<tr><td colspan="9" class="px-5 py-8 text-center text-slate-400">ไม่พบลูกค้ารายใดตามเงื่อนไขตัวกรองและการค้นหา</td></tr>`;
           return;
         }
 
         const sortedAll = [...filteredCustomers].sort((a, b) => b.activeSales69 - a.activeSales69);
-        sortedAll.forEach(cust => {
+        const startIndex = (currentPage - 1) * pageSize;
+        const pageItems = sortedAll.slice(startIndex, startIndex + pageSize);
+
+        pageItems.forEach(cust => {
           const isPos = cust.activeYoY >= 0;
           const monthsPills = cust.purchasedMonths.map(m => {
             const isMatch = selectedMonths.includes(m);
@@ -1455,11 +1064,15 @@
           </tr>
         `;
         const sorted = [...filteredCustomers].sort((a, b) => b.activeSales69 - a.activeSales69);
-        sorted.forEach((c, i) => {
+        updatePaginationUI(sorted.length);
+        const pageItems = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+        pageItems.forEach((c, i) => {
+          const rank = (currentPage - 1) * pageSize + i + 1;
           const topItem = [...c.items].sort((x, y) => y.s69 - x.s69)[0];
           tbody.innerHTML += `
             <tr onclick="openCustomerModal('${c.name}')" class="hover:bg-slate-50 cursor-pointer transition">
-              <td class="px-5 py-3 font-bold text-slate-400">#${i + 1}</td>
+              <td class="px-5 py-3 font-bold text-slate-400">#${rank}</td>
               <td class="px-5 py-3 font-bold text-slate-900 text-emerald-700">${c.name}</td>
               <td class="px-4 py-3">${c.branch}</td>
               <td class="px-4 py-3 text-slate-700">${topItem ? topItem.name : '-'}</td>
@@ -1513,7 +1126,11 @@
           });
         });
 
-        Object.values(prodMap).sort((a, b) => b.s69 - a.s69).forEach(p => {
+        const prodList = Object.values(prodMap).sort((a, b) => b.s69 - a.s69);
+        updatePaginationUI(prodList.length);
+        const pageItems = prodList.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+        pageItems.forEach(p => {
           const pYoy = calcYoY(p.s69, p.s68);
           tbody.innerHTML += `
             <tr class="hover:bg-slate-50 transition">
@@ -1554,7 +1171,10 @@
           }
         });
 
-        Object.keys(typeMap).forEach(typeName => {
+        const typeList = Object.keys(typeMap);
+        updatePaginationUI(typeList.length);
+
+        typeList.forEach(typeName => {
           const d = typeMap[typeName];
           const yoy = calcYoY(d.s69, d.s68);
           const diff = d.s69 - d.s68;
@@ -1592,7 +1212,11 @@
           });
         });
 
-        Object.keys(suppMap).sort((a, b) => suppMap[b].s69 - suppMap[a].s69).forEach(suppName => {
+        const suppList = Object.keys(suppMap).sort((a, b) => suppMap[b].s69 - suppMap[a].s69);
+        updatePaginationUI(suppList.length);
+        const pageItems = suppList.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+        pageItems.forEach(suppName => {
           const sp = suppMap[suppName];
           const yoy = calcYoY(sp.s69, sp.s68);
           tbody.innerHTML += `
@@ -1609,39 +1233,322 @@
       lucide.createIcons();
     }
 
-    // --- Customer Type Checkbox Handlers ---
-    function onCustTypeChange() {
-      const checkedBoxes = document.querySelectorAll('.cust-checkbox:checked');
-      selectedCustTypes = Array.from(checkedBoxes).map(cb => cb.value);
-      document.getElementById('selectedCountBadge').innerText = `เลือก ${selectedCustTypes.length} จาก 6 ประเภท`;
-      refreshAllViews();
+    // --- Chart Initializations & Updates ---
+    function initCharts() {
+      // 1. Customer Ranking Chart (Horizontal Bar Chart)
+      const ctxRank = document.getElementById('customerRankingChart');
+      if (ctxRank) {
+        customerRankingChart = new Chart(ctxRank.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: [],
+            datasets: [
+              {
+                label: 'ยอดซื้อปี 2568',
+                data: [],
+                backgroundColor: '#cbd5e1',
+                borderRadius: 6,
+                maxBarThickness: 18
+              },
+              {
+                label: 'ยอดซื้อปี 2569',
+                data: [],
+                backgroundColor: '#059669',
+                borderRadius: 6,
+                maxBarThickness: 18
+              }
+            ]
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: function(ctx) {
+                    return ctx.dataset.label + ': ' + formatCurrency(ctx.raw);
+                  }
+                }
+              }
+            },
+            scales: {
+              x: {
+                beginAtZero: true,
+                ticks: {
+                  callback: v => '฿' + (v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : (v / 1000).toFixed(0) + 'K')
+                },
+                grid: { color: '#f1f5f9' }
+              },
+              y: {
+                grid: { display: false },
+                ticks: {
+                  font: { family: 'Kanit', size: 11 }
+                }
+              }
+            }
+          }
+        });
+      }
+
+      // 2. Monthly Trend Chart
+      const ctxMonth = document.getElementById('monthlyTrendChart');
+      if (ctxMonth) {
+        monthlyTrendChart = new Chart(ctxMonth.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."],
+            datasets: [
+              {
+                label: 'ปี 2568',
+                data: Array(12).fill(0),
+                backgroundColor: '#cbd5e1',
+                borderRadius: 4
+              },
+              {
+                label: 'ปี 2569',
+                data: Array(12).fill(0),
+                backgroundColor: '#0284c7',
+                borderRadius: 4
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'bottom' },
+              tooltip: {
+                callbacks: {
+                  label: ctx => ctx.dataset.label + ': ' + formatCurrency(ctx.raw)
+                }
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  callback: v => '฿' + (v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : (v / 1000).toFixed(0) + 'K')
+                },
+                grid: { color: '#f1f5f9' }
+              },
+              x: {
+                grid: { display: false }
+              }
+            }
+          }
+        });
+      }
     }
 
-    function selectAllCustomerTypes(selectAll) {
-      document.querySelectorAll('.cust-checkbox').forEach(cb => {
-        cb.checked = selectAll;
+    function updateCharts() {
+      const filtered = getFilteredCustomers();
+
+      // Top Customers Ranking Chart
+      if (customerRankingChart) {
+        const sorted = [...filtered].sort((a, b) => b.activeSales69 - a.activeSales69).slice(0, 7);
+        customerRankingChart.data.labels = sorted.map(c => c.name);
+        customerRankingChart.data.datasets[0].data = sorted.map(c => showYear68 ? c.activeSales68 : 0);
+        customerRankingChart.data.datasets[1].data = sorted.map(c => showYear69 ? c.activeSales69 : 0);
+        customerRankingChart.update();
+      }
+
+      // Monthly Trend Chart
+      if (monthlyTrendChart) {
+        const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+        const monthly68 = Array(12).fill(0);
+        const monthly69 = Array(12).fill(0);
+
+        filtered.forEach(c => {
+          c.items.forEach(it => {
+            it.months.forEach(m => {
+              const idx = months.indexOf(m);
+              if (idx !== -1 && selectedMonths.includes(m)) {
+                if (showYear68) monthly68[idx] += it.s68 / (it.months.length || 1);
+                if (showYear69) monthly69[idx] += it.s69 / (it.months.length || 1);
+              }
+            });
+          });
+        });
+
+        monthlyTrendChart.data.datasets[0].data = monthly68;
+        monthlyTrendChart.data.datasets[1].data = monthly69;
+        monthlyTrendChart.update();
+      }
+    }
+
+    // --- KPI Cards Calculations ---
+    function updateKpis() {
+      const filtered = getFilteredCustomers();
+      let total68 = 0;
+      let total69 = 0;
+      const b69 = { 'ปากช่อง': 0, 'โคราช': 0, 'ชัยภูมิ': 0 };
+
+      filtered.forEach(c => {
+        total68 += c.activeSales68;
+        total69 += c.activeSales69;
+        if (b69[c.branch] !== undefined) {
+          b69[c.branch] += c.activeSales69;
+        }
       });
-      onCustTypeChange();
+
+      const totalYoY = calcYoY(total69, total68);
+
+      const elTotal = document.getElementById('kpiTotalSales');
+      const elPrev = document.getElementById('kpiPrevTotal');
+      const elYoY = document.getElementById('kpiTotalYoY');
+
+      if (elTotal) elTotal.innerText = formatCurrency(total69);
+      if (elPrev) elPrev.innerText = formatCurrency(total68);
+      if (elYoY) {
+        const isPos = totalYoY >= 0;
+        elYoY.className = `font-bold ${isPos ? 'text-emerald-600' : 'text-rose-600'} flex items-center gap-0.5`;
+        elYoY.innerHTML = `<i data-lucide="${isPos ? 'trending-up' : 'trending-down'}" class="w-3.5 h-3.5"></i> ${isPos ? '+' : ''}${totalYoY}% YoY`;
+      }
+
+      const elPak = document.getElementById('kpiPakChongSales');
+      const elKor = document.getElementById('kpiKoratSales');
+      const elChai = document.getElementById('kpiChaiyaphumSales');
+      if (elPak) elPak.innerText = formatCurrency(b69['ปากช่อง']);
+      if (elKor) elKor.innerText = formatCurrency(b69['โคราช']);
+      if (elChai) elChai.innerText = formatCurrency(b69['ชัยภูมิ']);
     }
 
-    // --- Branch Switching Logic ---
+    // --- Deep Dive Panel Update ---
+    function updateDeepDive() {
+      const title = document.getElementById('ddBranchTitle');
+      if (title) title.innerText = `สาขา${currentDeepDiveBranch}`;
+
+      const branchCustomers = ACTIVE_CUSTOMERS.filter(c => {
+        const matchBranch = c.branch === currentDeepDiveBranch;
+        const matchType = selectedCustTypes.includes(c.type);
+        const matchMonth = c.purchasedMonths.some(m => selectedMonths.includes(m));
+        return matchBranch && matchType && matchMonth;
+      });
+
+      let bSales68 = 0;
+      let bSales69 = 0;
+      const prodMap = {};
+
+      branchCustomers.forEach(c => {
+        c.items.forEach(it => {
+          const common = it.months.filter(m => selectedMonths.includes(m));
+          if (common.length > 0) {
+            const ratio = common.length / (it.months.length || 1);
+            if (showYear68) bSales68 += it.s68 * ratio;
+            if (showYear69) bSales69 += it.s69 * ratio;
+
+            if (!prodMap[it.name]) {
+              prodMap[it.name] = { name: it.name, q69: 0, s69: 0, unit: it.unit };
+            }
+            prodMap[it.name].q69 += Math.round(it.qty69 * ratio);
+            prodMap[it.name].s69 += it.s69 * ratio;
+          }
+        });
+      });
+
+      const s69El = document.getElementById('ddSales69');
+      const s68El = document.getElementById('ddSales68');
+      const diffEl = document.getElementById('ddDiffAmount');
+      const growthEl = document.getElementById('ddGrowthText');
+
+      const diff = bSales69 - bSales68;
+      const yoy = calcYoY(bSales69, bSales68);
+
+      if (s69El) s69El.innerText = formatCurrency(bSales69);
+      if (s68El) s68El.innerText = formatCurrency(bSales68);
+      if (diffEl) {
+        diffEl.innerText = `${diff >= 0 ? 'เพิ่มขึ้น +' : 'ลดลง -'}${formatCurrency(Math.abs(diff))}`;
+        diffEl.className = `text-xs ${diff >= 0 ? 'text-emerald-400' : 'text-rose-400'} font-medium mt-0.5`;
+      }
+      if (growthEl) {
+        growthEl.innerText = `${yoy >= 0 ? '+' : ''}${yoy}% YoY`;
+        growthEl.className = `text-[10px] ${yoy >= 0 ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' : 'bg-rose-500/10 text-rose-300 border-rose-500/20'} border px-2 py-0.5 rounded-full`;
+      }
+
+      // Customer List in Deep Dive
+      const custListEl = document.getElementById('ddCustomerList');
+      if (custListEl) {
+        const top3Cust = [...branchCustomers].sort((a, b) => {
+          const sumA = a.items.reduce((acc, it) => acc + it.s69, 0);
+          const sumB = b.items.reduce((acc, it) => acc + it.s69, 0);
+          return sumB - sumA;
+        }).slice(0, 3);
+
+        if (top3Cust.length === 0) {
+          custListEl.innerHTML = `<span class="text-slate-400">ไม่พบข้อมูลลูกค้าในเงื่อนไขนี้</span>`;
+        } else {
+          custListEl.innerHTML = top3Cust.map(c => {
+            const sum69 = c.items.reduce((acc, it) => acc + it.s69, 0);
+            return `
+              <div onclick="openCustomerModal('${c.name}')" class="p-2 rounded-xl bg-slate-900/60 hover:bg-slate-700/60 cursor-pointer transition flex items-center justify-between border border-slate-700/50">
+                <span class="font-medium text-slate-200 truncate pr-2">${c.name}</span>
+                <span class="text-emerald-400 font-bold whitespace-nowrap">${formatCurrency(sum69)}</span>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      // Product List in Deep Dive
+      const prodListEl = document.getElementById('ddProductList');
+      if (prodListEl) {
+        const topProds = Object.values(prodMap).sort((a, b) => b.s69 - a.s69).slice(0, 3);
+        if (topProds.length === 0) {
+          prodListEl.innerHTML = `<span class="text-slate-400">ไม่มีข้อมูลสินค้า</span>`;
+        } else {
+          prodListEl.innerHTML = topProds.map(p => `
+            <div class="p-2 rounded-xl bg-slate-900/60 border border-slate-700/50">
+              <div class="flex justify-between items-center">
+                <span class="font-semibold text-slate-200 truncate pr-2">${p.name}</span>
+                <span class="text-amber-400 font-bold">${formatCurrency(p.s69)}</span>
+              </div>
+              <div class="text-[11px] text-slate-400 mt-0.5">จำนวนที่ขาย: ${p.q69.toLocaleString()} ${p.unit}</div>
+            </div>
+          `).join('');
+        }
+      }
+
+      // Insight Text
+      const insightEl = document.getElementById('ddBranchInsight');
+      if (insightEl) {
+        if (currentDeepDiveBranch === 'ปากช่อง') {
+          insightEl.innerHTML = `สาขาปากช่องมีสัดส่วนกลุ่ม <strong>6-ชาวเกษตร</strong> และ <strong>4-ร้านค้า</strong> สูงที่สุด โดยมียอดขายเติบโตหลักจากเมล็ดข้าวโพดและเคมีป้องกันหนอน ควรเร่งขยายตลาดปุ๋ยทางใบเพิ่มเติม`;
+        } else if (currentDeepDiveBranch === 'โคราช') {
+          insightEl.innerHTML = `สาขาโคราชมีอัตราเติบโต YoY สูงที่สุด ยอดขายหลักพึ่งพาสารกำจัดวัชพืช <strong>กลูโฟซิเนต</strong> และร้านค้าส่งขนาดใหญ่ ควรเสนอนโยบายส่วนลดการสั่งซื้อล่วงหน้า`;
+        } else {
+          insightEl.innerHTML = `สาขาชัยภูมิมีเสถียรภาพสูงในกลุ่มปุ๋ยเคมีและสารกำจัดแมลง ยอดขายสามารถขยายตัวได้มากขึ้นหากส่งเสริมผลิตภัณฑ์กลุ่มฮอร์โมนพืชเสริม`;
+        }
+      }
+    }
+
+    // --- Master Refresh ---
+    function refreshAllViews() {
+      updateKpis();
+      updateCharts();
+      updateDeepDive();
+      renderMatrixTable();
+      lucide.createIcons();
+    }
+
+    // --- Filter Handlers ---
     function setBranch(branch) {
       currentBranch = branch;
       ['all', 'ปากช่อง', 'โคราช', 'ชัยภูมิ'].forEach(b => {
         const btn = document.getElementById(`btn-branch-${b}`);
-        if (!btn) return;
-        if (b === branch) {
-          btn.className = "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition bg-white text-slate-900 shadow-sm";
-        } else {
-          btn.className = "px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition";
+        if (btn) {
+          if (b === branch) {
+            btn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold transition bg-white text-slate-900 shadow-sm';
+          } else {
+            btn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition';
+          }
         }
       });
+      const badge = document.getElementById('currentBranchBadge');
+      if (badge) badge.innerText = branch === 'all' ? 'ทุกสาขา' : `สาขา${branch}`;
 
-      document.getElementById('currentBranchBadge').innerText = branch === 'all' ? 'ทุกสาขา' : `สาขา${branch}`;
-
-      if (branch !== 'all') {
-        setDeepDiveBranch(branch);
-      }
+      currentPage = 1;
       refreshAllViews();
     }
 
@@ -1649,250 +1556,171 @@
       currentDeepDiveBranch = branch;
       ['ปากช่อง', 'โคราช', 'ชัยภูมิ'].forEach(b => {
         const btn = document.getElementById(`dd-btn-${b}`);
-        if (!btn) return;
-        if (b === branch) {
-          btn.className = "px-3 py-1 text-xs font-medium rounded-lg transition bg-emerald-600 text-white shadow";
-        } else {
-          btn.className = "px-3 py-1 text-xs font-medium rounded-lg transition text-slate-300 hover:text-white";
+        if (btn) {
+          if (b === branch) {
+            btn.className = 'px-3 py-1 text-xs font-medium rounded-lg transition bg-emerald-600 text-white shadow';
+          } else {
+            btn.className = 'px-3 py-1 text-xs font-medium rounded-lg transition text-slate-300 hover:text-white';
+          }
         }
       });
-      renderDeepDivePanel();
+      updateDeepDive();
+      lucide.createIcons();
     }
 
     function setTableTab(tab) {
       currentTab = tab;
       ['allCustomers', 'topBuyers', 'productsMaster', 'customerTypes', 'suppliers'].forEach(t => {
         const btn = document.getElementById(`tab-${t}`);
-        if (!btn) return;
-        if (t === tab) {
-          btn.className = "px-3 py-1.5 text-xs font-semibold rounded-lg transition bg-white text-emerald-800 shadow-sm";
-        } else {
-          btn.className = "px-3 py-1.5 text-xs font-semibold rounded-lg transition text-slate-600 hover:text-slate-900";
+        if (btn) {
+          if (t === tab) {
+            btn.className = 'px-3 py-1.5 text-xs font-semibold rounded-lg transition bg-white text-emerald-800 shadow-sm';
+          } else {
+            btn.className = 'px-3 py-1.5 text-xs font-semibold rounded-lg transition text-slate-600 hover:text-slate-900';
+          }
         }
       });
+      currentPage = 1;
       renderMatrixTable();
     }
 
-    // --- Smart Cross-sell / Upsell Recommendation Engine ---
-    function generateSmartRecommendations(customer) {
-      const recs = [];
-      const boughtCodes = customer.items.map(it => it.code);
-      const boughtNames = customer.items.map(it => it.name.toLowerCase());
-
-      // Case 1: ซื้อข้าวโพด แต่ยังไม่มีพรีวาธอน หรือยาหนอนเจาะ
-      const hasCorn = boughtNames.some(n => n.includes("ข้าวโพด"));
-      const hasPrevathon = boughtCodes.includes("30-3724-00003") || boughtCodes.includes("30-3724-00004");
-      if (hasCorn && !hasPrevathon) {
-        recs.push({
-          title: "พรีวาธอน 5SC 1 ลิตร (ยาหนอนกระทู้ข้าวโพดลายจุด)",
-          code: "30-3724-00003",
-          supp: "เอฟเอ็มซี",
-          reason: "ลูกค้าปลูกข้าวโพดแปลงใหญ่แต่ยังไม่มีประวัติซื้อพรีวาธอน เพื่อป้องกันการระบาดของหนอนกระทู้ข้าวโพดลายจุดช่วงอายุ 20-40 วัน",
-          benefit: "คาดการณ์ยอดสั่งซื้อเพิ่ม ฿45,000 - ฿90,000 / รอบ"
-        });
-      }
-
-      // Case 2: ซื้อยาฆ่าหญ้ากลูโฟซิเนต แต่ยังไม่มียาคุมหญ้าก่อนงอก
-      const hasGlufosinate = boughtNames.some(n => n.includes("มาคายี") || n.includes("คายีซาเรส") || n.includes("กลูโฟซิเนต"));
-      const hasPreEmerge = boughtCodes.includes("26-0425-00000") || boughtCodes.includes("11-3311-34003");
-      if (hasGlufosinate && !hasPreEmerge) {
-        recs.push({
-          title: "บีคาโน 100 ซีซี หรือ ซูมิโซย่า (สารคุมหญ้าก่อนงอก)",
-          code: "26-0425-00000",
-          supp: "บาก้า โกรว์เคมีคอล",
-          reason: "ลูกค้าสั่งยาฆ่าหญ้าแบบเผาไหม้ปริมาณมาก แนะนำพ่วงสารคุมเมล็ดหญ้า เพื่อยืดระยะเวลาหญ้าเกิดใหม่ ลดรอบการฉีดพ่นให้เกษตรกร",
-          benefit: "เพิ่มมูลค่าบิลเคมีคุมวัชพืชได้อีก 25-30%"
-        });
-      }
-
-      // Case 3: ซื้อปุ๋ยเคมีหรือฮอร์โมน แต่ยังไม่เคยซื้อสารปรับปรุงดินฮิวเมท
-      const hasHumate = boughtCodes.includes("27-2111-44000");
-      if (!hasHumate) {
-        recs.push({
-          title: "โปแตสเซียมฮิวเมท แบล็กเอิร์ธ 25 กก. (ปรับโครงสร้างดิน)",
-          code: "27-2111-44000",
-          supp: "ดวงตะวันเพชร",
-          reason: "ช่วยปลดปล่อยปุ๋ยเคมีตกค้างในดิน เพิ่มประสิทธิภาพรากดูดซึม เหมาะสำหรับขายพ่วงกับปุ๋ยเคมีทุกสูตร",
-          benefit: "สินค้ากำไรขั้นต้นสูง (High Margin Item)"
-        });
-      }
-
-      // Default recommendation
-      if (recs.length === 0) {
-        recs.push({
-          title: "แมมมอท แคลเซียมโบรอน 4 ลิตร (ฮอร์โมนขยายผล)",
-          code: "33-3304-11003",
-          supp: "เทพวัฒนา แพลนเตอร์",
-          reason: "สินค้าขายดีประจำสาขาที่ลูกค้ารายอื่นซื้อซ้ำต่อเนื่อง ช่วยให้ผลผลิตน้ำหนักดีและขั้วเหนียว",
-          benefit: "สร้างยอดซื้อซ้ำประจำฤดูกาล"
-        });
-      }
-
-      return recs;
+    function onCustTypeChange() {
+      const boxes = document.querySelectorAll('.cust-checkbox:checked');
+      selectedCustTypes = Array.from(boxes).map(b => b.value);
+      const badge = document.getElementById('selectedCountBadge');
+      if (badge) badge.innerText = `เลือก ${selectedCustTypes.length} จาก 6 ประเภท`;
+      currentPage = 1;
+      refreshAllViews();
     }
 
-    // --- Time Filter & Universal Search Event Handlers ---
+    function selectAllCustomerTypes(selectAll) {
+      document.querySelectorAll('.cust-checkbox').forEach(cb => cb.checked = selectAll);
+      onCustTypeChange();
+    }
+
     function onTimeFilterChange() {
-      showYear68 = document.getElementById('chkYear68').checked;
-      showYear69 = document.getElementById('chkYear69').checked;
+      const chk68 = document.getElementById('chkYear68');
+      const chk69 = document.getElementById('chkYear69');
+      showYear68 = chk68 ? chk68.checked : true;
+      showYear69 = chk69 ? chk69.checked : true;
 
-      const checkedMonthBoxes = document.querySelectorAll('.month-checkbox:checked');
-      selectedMonths = Array.from(checkedMonthBoxes).map(cb => cb.value);
+      const checkedMonths = document.querySelectorAll('.month-checkbox:checked');
+      selectedMonths = Array.from(checkedMonths).map(c => c.value);
 
-      document.getElementById('selectedMonthsBadge').innerText = `เลือก ${selectedMonths.length} จาก 12 เดือน`;
+      const badge = document.getElementById('selectedMonthsBadge');
+      if (badge) badge.innerText = `เลือก ${selectedMonths.length} จาก 12 เดือน`;
 
-      // Update styling of month pills
-      document.querySelectorAll('.month-pill').forEach(pill => {
-        const cb = pill.querySelector('.month-checkbox');
-        if (cb.checked) {
-          pill.className = "month-pill flex items-center justify-center gap-1.5 py-1 px-1.5 rounded-lg border border-emerald-300 bg-emerald-50/70 text-emerald-800 font-semibold cursor-pointer text-xs select-none shadow-xs";
-        } else {
-          pill.className = "month-pill flex items-center justify-center gap-1.5 py-1 px-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs select-none text-slate-500";
-        }
-      });
-
+      currentPage = 1;
       refreshAllViews();
     }
 
     function selectMonthsPreset(preset) {
-      const qMap = {
-        'q1': ["ม.ค.", "ก.พ.", "มี.ค."],
-        'q2': ["เม.ย.", "พ.ค.", "มิ.ย."],
-        'q3': ["ก.ค.", "ส.ค.", "ก.ย."],
-        'q4': ["ต.ค.", "พ.ย.", "ธ.ค."]
-      };
+      const allMonths = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+      let target = [];
+      if (preset === 'all') target = [...allMonths];
+      else if (preset === 'q1') target = ["ม.ค.", "ก.พ.", "มี.ค."];
+      else if (preset === 'q2') target = ["เม.ย.", "พ.ค.", "มิ.ย."];
+      else if (preset === 'q3') target = ["ก.ค.", "ส.ค.", "ก.ย."];
+      else if (preset === 'q4') target = ["ต.ค.", "พ.ย.", "ธ.ค."];
+      else target = [];
 
       document.querySelectorAll('.month-checkbox').forEach(cb => {
-        if (preset === 'all') cb.checked = true;
-        else if (preset === 'none') cb.checked = false;
-        else if (qMap[preset]) cb.checked = qMap[preset].includes(cb.value);
+        cb.checked = target.includes(cb.value);
       });
-
       onTimeFilterChange();
+    }
+
+    function applyFilters() {
+      const input = document.getElementById('universalSearchInput');
+      universalSearchTerm = input ? input.value : '';
+      const clearBtn = document.getElementById('btnClearSearch');
+      if (clearBtn) {
+        if (universalSearchTerm) clearBtn.classList.remove('hidden');
+        else clearBtn.classList.add('hidden');
+      }
+      currentPage = 1;
+      refreshAllViews();
     }
 
     function clearUniversalSearch() {
       const input = document.getElementById('universalSearchInput');
-      if (input) {
-        input.value = '';
-        universalSearchTerm = '';
-        document.getElementById('btnClearSearch').classList.add('hidden');
-        refreshAllViews();
-      }
+      if (input) input.value = '';
+      applyFilters();
     }
 
-    function applyFilters() {
-      const searchEl = document.getElementById('universalSearchInput');
-      if (searchEl) {
-        universalSearchTerm = searchEl.value;
-        const btnClear = document.getElementById('btnClearSearch');
-        if (universalSearchTerm.trim()) {
-          btnClear.classList.remove('hidden');
-        } else {
-          btnClear.classList.add('hidden');
-        }
-      }
-      refreshAllViews();
-    }
-
-    function refreshAllViews() {
-      updateKPIs();
-      renderDeepDivePanel();
-      updateCustomerRankingChart();
-      updateMonthlyTrendChart();
-      renderMatrixTable();
-    }
-
-    // --- Customer 360 Drill-Down Modal Logic ---
+    // --- Customer Modal Drill-Down (Customer 360) ---
     function openCustomerModal(custName) {
       const cust = ACTIVE_CUSTOMERS.find(c => c.name === custName);
       if (!cust) return;
 
       document.getElementById('modalCustomerName').innerText = cust.name;
       document.getElementById('modalCustomerType').innerText = cust.type;
-      document.getElementById('modalCustomerSub').innerText = `รหัส: ${cust.id} • สาขาหลัก: ${cust.branch} • ซื้อล่าสุดเมื่อ: ${cust.lastPurchaseDate}`;
+      document.getElementById('modalCustomerSub').innerText = `สาขา${cust.branch} • รหัสลูกค้า: ${cust.id} • ซื้อล่าสุด: ${cust.lastPurchaseDate}`;
 
-      let modalTot68 = 0, modalTot69 = 0;
-      cust.items.forEach(it => {
-        const commonMonths = it.months.filter(m => selectedMonths.includes(m));
-        if (commonMonths.length > 0) {
-          const ratio = it.months.length > 0 ? (commonMonths.length / it.months.length) : 1;
-          modalTot68 += it.s68 * ratio;
-          modalTot69 += it.s69 * ratio;
-        }
-      });
-
-      document.getElementById('modalSales68').innerText = formatCurrency(modalTot68);
-      document.getElementById('modalSales69').innerText = formatCurrency(modalTot69);
-      const custYoy = calcYoY(modalTot69, modalTot68);
-      document.getElementById('modalYoYGrowth').innerText = `${custYoy >= 0 ? '+' : ''}${custYoy}% YoY`;
-      document.getElementById('modalYoYGrowth').className = `text-base sm:text-lg font-extrabold mt-1 block ${custYoy >= 0 ? 'text-emerald-600' : 'text-rose-600'}`;
-      document.getElementById('modalItemCount').innerText = `${cust.items.length} รายการ`;
-
-      // Render Bought Products Table
+      let s68 = 0;
+      let s69 = 0;
       const tbody = document.getElementById('modalProductListBody');
       tbody.innerHTML = '';
-      cust.items.forEach(p => {
-        const commonMonths = p.months.filter(m => selectedMonths.includes(m));
-        const ratio = commonMonths.length > 0 ? (commonMonths.length / p.months.length) : 1;
-        const s68 = p.s68 * ratio;
-        const s69 = p.s69 * ratio;
-        const q68 = Math.round(p.qty68 * ratio);
-        const q69 = Math.round(p.qty69 * ratio);
-        const pYoy = calcYoY(s69, s68);
-        const isPos = pYoy >= 0;
-        const monthsBadge = p.months.map(m => {
-          const isMatch = selectedMonths.includes(m);
-          return `<span class="inline-block px-1.5 py-0.5 rounded ${isMatch ? 'bg-emerald-100 text-emerald-800 font-semibold' : 'bg-slate-100 text-slate-400'} text-[10px] mr-1">${m}</span>`;
-        }).join('');
-        
+
+      cust.items.forEach(it => {
+        s68 += it.s68;
+        s69 += it.s69;
+        const itYoy = calcYoY(it.s69, it.s68);
         tbody.innerHTML += `
           <tr class="hover:bg-slate-50 transition">
-            <td class="px-4 py-2.5">
-              <div class="font-bold text-slate-900">${p.name}</div>
-              <div class="text-[10px] text-emerald-700 font-mono">รหัสสินค้า: ${p.code} (${p.category})</div>
+            <td class="px-4 py-2.5 font-bold text-slate-800">
+              <div>${it.name}</div>
+              <div class="text-[10px] text-slate-400 font-mono font-normal">รหัส: ${it.code}</div>
             </td>
-            <td class="px-3 py-2.5 text-slate-600"><span class="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-medium">${p.supp}</span></td>
-            <td class="px-3 py-2.5 text-center text-slate-500 font-medium">${q68.toLocaleString()} ${p.unit}</td>
-            <td class="px-3 py-2.5 text-center font-bold text-slate-900 bg-emerald-50/50">${q69.toLocaleString()} ${p.unit}</td>
-            <td class="px-3 py-2.5 text-right text-slate-500">${formatCurrency(s68)}</td>
-            <td class="px-3 py-2.5 text-right font-bold text-emerald-800">${formatCurrency(s69)}</td>
-            <td class="px-3 py-2.5 text-center">${monthsBadge}</td>
-            <td class="px-3 py-2.5 text-right font-bold ${isPos ? 'text-emerald-600' : 'text-rose-600'}">
-              ${isPos ? '+' : ''}${pYoy}%
-            </td>
+            <td class="px-3 py-2.5 text-slate-600">${it.supp}</td>
+            <td class="px-3 py-2.5 text-center">${it.qty68.toLocaleString()} ${it.unit}</td>
+            <td class="px-3 py-2.5 text-center font-bold text-slate-900">${it.qty69.toLocaleString()} ${it.unit}</td>
+            <td class="px-3 py-2.5 text-right text-slate-500">${formatCurrency(it.s68)}</td>
+            <td class="px-3 py-2.5 text-right font-bold text-slate-900">${formatCurrency(it.s69)}</td>
+            <td class="px-3 py-2.5 text-center">${it.months.join(', ')}</td>
+            <td class="px-3 py-2.5 text-right font-bold ${itYoy >= 0 ? 'text-emerald-600' : 'text-rose-600'}">${itYoy >= 0 ? '+' : ''}${itYoy}%</td>
           </tr>
         `;
       });
 
-      // Render Smart Recommendations
-      const smartRecs = generateSmartRecommendations(cust);
-      document.getElementById('modalRecommendContext').innerHTML = 
-        `วิเคราะห์จากประวัติการสั่งซื้อสินค้า <strong>${cust.items.length} รายการ</strong> ของ <strong>"${cust.name}"</strong> ระบบ AI ตรวจพบโอกาสขายพ่วง (Cross-sell/Upsell) ดังนี้:`;
+      document.getElementById('modalSales68').innerText = formatCurrency(s68);
+      document.getElementById('modalSales69').innerText = formatCurrency(s69);
+      const totalYoY = calcYoY(s69, s68);
+      const yoyEl = document.getElementById('modalYoYGrowth');
+      yoyEl.innerText = `${totalYoY >= 0 ? '+' : ''}${totalYoY}%`;
+      yoyEl.className = `text-base sm:text-lg font-bold mt-1 block ${totalYoY >= 0 ? 'text-emerald-600' : 'text-rose-600'}`;
+      document.getElementById('modalItemCount').innerText = `${cust.items.length} รายการ`;
 
-      const recBox = document.getElementById('modalRecommendCards');
-      recBox.innerHTML = '';
-      smartRecs.forEach(r => {
-        recBox.innerHTML += `
-          <div class="bg-white p-3.5 rounded-xl border border-emerald-300 shadow-sm flex flex-col justify-between">
-            <div>
-              <div class="flex items-center gap-1.5 text-emerald-800 font-bold text-xs mb-1">
-                <i data-lucide="plus-circle" class="w-4 h-4 text-emerald-600"></i>
-                <span>${r.title}</span>
-              </div>
-              <div class="text-[10px] text-slate-500 font-mono mb-1.5">รหัสสินค้าแนะนำ: ${r.code} (${r.supp})</div>
-              <p class="text-[11px] text-slate-600 leading-relaxed mb-2">${r.reason}</p>
-            </div>
-            <div class="pt-2 border-t border-slate-100 text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
-              <i data-lucide="check" class="w-3.5 h-3.5 text-emerald-600"></i>
-              <span>${r.benefit}</span>
-            </div>
+      // Smart Upsell Recommendations
+      const recommendContainer = document.getElementById('modalRecommendCards');
+      recommendContainer.innerHTML = `
+        <div class="bg-white p-3.5 rounded-xl border border-emerald-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <span class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">แนะนำขยายยอด</span>
+            <h5 class="font-bold text-xs text-slate-900 mt-1">สารจับใบพรีเมียม ซิลิโคนเกรด</h5>
+            <p class="text-[11px] text-slate-500 mt-1">ช่วยประหยัดยา เพิ่มการดูดซึม เหมาะนำเสนอคู่กับยาฆ่าแมลงและยาฆ่าหญ้า</p>
           </div>
-        `;
-      });
+          <span class="text-xs font-bold text-emerald-600 mt-2 block">+ โอกาสเพิ่มยอดบิล 15%</span>
+        </div>
+        <div class="bg-white p-3.5 rounded-xl border border-emerald-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <span class="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">สูตรอาหารเสริม</span>
+            <h5 class="font-bold text-xs text-slate-900 mt-1">แคลเซียมโบรอน + อะมิโนพืช</h5>
+            <p class="text-[11px] text-slate-500 mt-1">ช่วยเปิดตาดอก ผสมเกสร ขยายฝักและผลผลิต นำเสนอขายช่วงก่อนติดผล</p>
+          </div>
+          <span class="text-xs font-bold text-blue-600 mt-2 block">+ ตอบโจทย์ช่วงฤดูเพาะปลูก</span>
+        </div>
+        <div class="bg-white p-3.5 rounded-xl border border-emerald-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <span class="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full">โปรโมชันคู่ค้า</span>
+            <h5 class="font-bold text-xs text-slate-900 mt-1">ปุ๋ยเกล็ดสูตรสะสมตาดอก (0-24-24)</h5>
+            <p class="text-[11px] text-slate-500 mt-1">ลูกค้ารายนี้ยังไม่เคยสั่งซื้อปุ๋ยเกล็ดจากทางร้าน มีศักยภาพเปิดบิลใหม่</p>
+          </div>
+          <span class="text-xs font-bold text-purple-600 mt-2 block">+ เปิดตลาดสินค้ากลุ่มใหม่</span>
+        </div>
+      `;
 
-      const modal = document.getElementById('customerModal');
-      if (modal) modal.classList.remove('hidden');
+      document.getElementById('customerModal').classList.remove('hidden');
       lucide.createIcons();
     }
 
@@ -1901,36 +1729,59 @@
       if (modal) modal.classList.add('hidden');
     }
 
-    function showToast(msg) {
-      const toast = document.getElementById('toastNotification');
-      const text = document.getElementById('toastMessage');
-      if (toast && text) {
-        text.innerText = msg;
-        toast.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
-        setTimeout(() => {
-          toast.classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
-        }, 3200);
-      }
+    // Modal Sheet Sync
+    function openSheetsSyncModal() {
+      const modal = document.getElementById('sheetsSyncModal');
+      if (modal) modal.classList.remove('hidden');
     }
 
-    // Expose handlers globally
+    function closeSheetsSyncModal() {
+      const modal = document.getElementById('sheetsSyncModal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function switchToDemoData() {
+      ACTIVE_CUSTOMERS = [...DEMO_CUSTOMERS];
+      isLiveGoogleSheets = false;
+      document.getElementById('liveSyncBanner').classList.add('hidden');
+      const statusText = document.getElementById('syncStatusText');
+      if (statusText) statusText.innerText = 'ข้อมูลตัวอย่าง (Demo)';
+      showToast('สลับใช้งานโหมดข้อมูลตัวอย่างแล้ว');
+      refreshAllViews();
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toastNotification');
+      const msgEl = document.getElementById('toastMessage');
+      if (!toast || !msgEl) return;
+      msgEl.innerText = msg;
+      toast.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
+      }, 3500);
+    }
+
+    // Expose Functions to Global Window Object for HTML event handlers
     window.setBranch = setBranch;
     window.setDeepDiveBranch = setDeepDiveBranch;
     window.setTableTab = setTableTab;
     window.onCustTypeChange = onCustTypeChange;
     window.selectAllCustomerTypes = selectAllCustomerTypes;
+    window.onTimeFilterChange = onTimeFilterChange;
+    window.selectMonthsPreset = selectMonthsPreset;
+    window.applyFilters = applyFilters;
+    window.clearUniversalSearch = clearUniversalSearch;
     window.openCustomerModal = openCustomerModal;
     window.closeCustomerModal = closeCustomerModal;
     window.openSheetsSyncModal = openSheetsSyncModal;
     window.closeSheetsSyncModal = closeSheetsSyncModal;
     window.testAndSaveSheetsUrl = testAndSaveSheetsUrl;
+    window.refreshData = refreshData;
     window.switchToDemoData = switchToDemoData;
     window.showToast = showToast;
-    window.onTimeFilterChange = onTimeFilterChange;
-    window.selectMonthsPreset = selectMonthsPreset;
-    window.clearUniversalSearch = clearUniversalSearch;
-    window.applyFilters = applyFilters;
-    window.refreshData = refreshData;
+    window.changePageSize = changePageSize;
+    window.prevPage = prevPage;
+    window.nextPage = nextPage;
 
     // Window Init
     window.onload = function() {
@@ -1944,8 +1795,13 @@
       const input = document.getElementById('sheetsApiUrlInput');
       if (input) input.value = sheetsApiUrl;
 
-      // Automatically connect and fetch live data from Google Sheets API
-      testAndSaveSheetsUrl();
+      // Render cached views immediately without waiting
+      refreshAllViews();
+
+      // Trigger background sync with Google Sheets (does not block UI)
+      setTimeout(() => {
+        testAndSaveSheetsUrl(true);
+      }, 300);
 
       window.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
