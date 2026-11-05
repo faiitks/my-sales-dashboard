@@ -848,82 +848,82 @@
       });
     }
 
-    async function testAndSaveSheetsUrl(isBackground = false) {
-      const urlInput = document.getElementById('sheetsApiUrlInput');
-      let url = urlInput ? urlInput.value.trim() : sheetsApiUrl;
-      if (!url) url = sheetsApiUrl;
+  async function testAndSaveSheetsUrl(isBackground = false) {
+  const urlInput = document.getElementById('sheetsApiUrlInput');
+  let url = urlInput ? urlInput.value.trim() : sheetsApiUrl;
+  if (!url) url = sheetsApiUrl;
 
-      const btn = document.getElementById('btnSaveSync');
-      const syncStatus = document.getElementById('syncStatusText');
-      const btnStatus = document.getElementById('btnSyncStatus');
+  const btn = document.getElementById('btnSaveSync');
+  const syncStatus = document.getElementById('syncStatusText');
+  const btnStatus = document.getElementById('btnSyncStatus');
 
-      if (btn && !isBackground) btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> <span>กำลังเชื่อมต่อ...</span>`;
-      if (syncStatus) syncStatus.innerText = 'กำลังเชื่อมต่อชีต...';
-      if (btnStatus) {
-        btnStatus.className = 'flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-800 text-xs font-semibold rounded-lg transition border border-amber-300 shadow-xs';
-      }
-      lucide.createIcons();
+  if (btn && !isBackground) btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> <span>กำลังเชื่อมต่อ...</span>`;
+  if (syncStatus) syncStatus.innerText = 'กำลังเชื่อมต่อชีต...';
+  if (btnStatus) {
+    btnStatus.className = 'flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-800 text-xs font-semibold rounded-lg transition border border-amber-300 shadow-xs';
+  }
+  lucide.createIcons();
 
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 25000);
+  try {
+    // ขยายเวลา Timeout เป็น 60 วินาที เพื่อรองรับการอ่านตารางขนาดใหญ่
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-        const res = await fetch(url, {
-          method: 'GET',
-          redirect: 'follow',
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
+    const res = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
 
-        if (!res.ok) {
-          throw new Error(`HTTP Error: ${res.status}`);
-        }
-
-        const data = await res.json();
-
-        if (data && data.error) {
-          throw new Error(data.error);
-        }
-
-        if (Array.isArray(data) && data.length > 0) {
-          ACTIVE_CUSTOMERS = data;
-          sheetsApiUrl = url;
-          isLiveGoogleSheets = true;
-          localStorage.setItem('sheets_sync_url', url);
-          try {
-            localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(data));
-          } catch(e) {}
-
-          const banner = document.getElementById('liveSyncBanner');
-          if (banner) banner.classList.remove('hidden');
-
-          if (syncStatus) syncStatus.innerText = `ซิงค์ชีตสำเร็จ (${data.length} ราย)`;
-          if (btnStatus) {
-            btnStatus.className = 'flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg transition border border-emerald-300 shadow-xs';
-          }
-
-          closeSheetsSyncModal();
-          showToast(`เชื่อมต่อ Google Sheets สำเร็จ! โหลดข้อมูลลูกค้า ${data.length} รายแล้ว`);
-          currentPage = 1;
-          refreshAllViews();
-        } else {
-          throw new Error("ไม่มีข้อมูลส่งกลับมาจาก Google Sheets");
-        }
-      } catch (err) {
-        console.error("Sheets Fetch Error:", err);
-        if (syncStatus) syncStatus.innerText = 'เชื่อมต่อไม่สำเร็จ (คลิกเพื่อแก้ไข)';
-        if (btnStatus) {
-          btnStatus.className = 'flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 text-xs font-semibold rounded-lg transition border border-rose-300 shadow-xs';
-        }
-        if (!isBackground) {
-          showToast('เชื่อมต่อไม่สำเร็จ: โปรดตรวจสอบการ Deploy ใน Google Apps Script');
-        }
-      } finally {
-        if (btn) btn.innerHTML = `<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> <span>เชื่อมต่อและดึงข้อมูลสด</span>`;
-        lucide.createIcons();
-      }
+    if (!res.ok) {
+      throw new Error(`HTTP Error: ${res.status}`);
     }
 
+    const data = await res.json();
+
+    if (data && data.error) {
+      throw new Error(data.error);
+    }
+
+    if (Array.isArray(data) && data.length > 0) {
+      ACTIVE_CUSTOMERS = data;
+      sheetsApiUrl = url;
+      isLiveGoogleSheets = true;
+      localStorage.setItem('sheets_sync_url', url);
+      try {
+        localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(data));
+      } catch(e) {}
+
+      const banner = document.getElementById('liveSyncBanner');
+      if (banner) banner.classList.remove('hidden');
+
+      if (syncStatus) syncStatus.innerText = `ซิงค์ชีตสำเร็จ (${data.length} ราย)`;
+      if (btnStatus) {
+        btnStatus.className = 'flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg transition border border-emerald-300 shadow-xs';
+      }
+
+      closeSheetsSyncModal();
+      showToast(`เชื่อมต่อสำเร็จ! โหลดข้อมูลลูกค้า ${data.length} รายการแล้ว`);
+      currentPage = 1;
+      refreshAllViews();
+    } else {
+      throw new Error("ไม่มีข้อมูลส่งกลับมาจาก Google Sheets");
+    }
+  } catch (err) {
+    console.error("Sheets Fetch Error:", err);
+    if (syncStatus) syncStatus.innerText = 'เชื่อมต่อไม่สำเร็จ (คลิกเพื่อแก้ไข)';
+    if (btnStatus) {
+      btnStatus.className = 'flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 text-xs font-semibold rounded-lg transition border border-rose-300 shadow-xs';
+    }
+    if (!isBackground) {
+      showToast('เชื่อมต่อไม่สำเร็จ: ' + (err.message || 'โปรดตรวจสอบสิทธิ์ของ Apps Script'));
+    }
+  } finally {
+    if (btn) btn.innerHTML = `<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> <span>เชื่อมต่อและดึงข้อมูลสด</span>`;
+    lucide.createIcons();
+  }
+}
     async function refreshData() {
       const icon = document.getElementById('refreshIcon');
       if (icon) icon.classList.add('animate-spin');
