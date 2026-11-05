@@ -46,8 +46,8 @@
         </div>
         <div>
           <div class="flex items-center gap-2">
-        <button onclick="openSheetsSyncModal()" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg transition border border-emerald-300 shadow-xs">
-          <i data-lucide="sheet" class="w-3.5 h-3.5 text-emerald-600"></i>
+        <button onclick="openSheetsSyncModal()" id="btnSyncStatus" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg transition border border-emerald-300 shadow-xs">
+          <i data-lucide="sheet" class="w-3.5 h-3.5 text-emerald-600" id="syncStatusIcon"></i>
           <span id="syncStatusText">เชื่อมต่อ Google Sheets</span>
         </button>
         <button onclick="refreshData()" class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition border border-slate-300">
@@ -872,22 +872,43 @@
     // --- Fast Google Sheets Sync Engine (With Fast Background Sync & Storage Cache) ---
     async function testAndSaveSheetsUrl(isBackground = false) {
       const urlInput = document.getElementById('sheetsApiUrlInput');
-      const url = urlInput ? urlInput.value.trim() : sheetsApiUrl;
-      if (!url) return;
+      let url = urlInput ? urlInput.value.trim() : sheetsApiUrl;
+      if (!url) url = sheetsApiUrl;
 
       const btn = document.getElementById('btnSaveSync');
       const syncStatus = document.getElementById('syncStatusText');
+      const btnStatus = document.getElementById('btnSyncStatus');
+      const icon = document.getElementById('syncStatusIcon');
+
       if (btn && !isBackground) btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> <span>กำลังเชื่อมต่อ...</span>`;
-      if (syncStatus) syncStatus.innerText = 'กำลังซิงค์...';
+      if (syncStatus) syncStatus.innerText = 'กำลังเชื่อมต่อชีต...';
+      if (btnStatus) {
+        btnStatus.className = 'flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-800 text-xs font-semibold rounded-lg transition border border-amber-300 shadow-xs';
+      }
       lucide.createIcons();
 
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout limit
+        const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout limit
 
-        const res = await fetch(url, { signal: controller.signal });
+        // Added redirect: 'follow' and mode: 'cors' for Google Apps Script redirects
+        const res = await fetch(url, {
+          method: 'GET',
+          redirect: 'follow',
+          mode: 'cors',
+          signal: controller.signal
+        });
         clearTimeout(timeoutId);
+
+        if (!res.ok) {
+          throw new Error(`HTTP Error: ${res.status}`);
+        }
+
         const data = await res.json();
+
+        if (data && data.error) {
+          throw new Error(data.error);
+        }
 
         if (Array.isArray(data) && data.length > 0) {
           ACTIVE_CUSTOMERS = data;
@@ -898,19 +919,30 @@
             localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(data));
           } catch(e) {}
 
-          document.getElementById('liveSyncBanner').classList.remove('hidden');
-          if (syncStatus) syncStatus.innerText = `Google Sheets (${data.length} ราย)`;
+          const banner = document.getElementById('liveSyncBanner');
+          if (banner) banner.classList.remove('hidden');
+
+          if (syncStatus) syncStatus.innerText = `ซิงค์ชีตสำเร็จ (${data.length} ราย)`;
+          if (btnStatus) {
+            btnStatus.className = 'flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg transition border border-emerald-300 shadow-xs';
+          }
+
           closeSheetsSyncModal();
-          showToast(`ซิงค์สำเร็จ! โหลดข้อมูลลูกค้า ${data.length} รายการแล้ว`);
+          showToast(`เชื่อมต่อ Google Sheets สำเร็จ! โหลด ${data.length} รายการลูกค้าแล้ว`);
           currentPage = 1;
           refreshAllViews();
         } else {
-          if (!isBackground) showToast('ไม่พบข้อมูลใน Sheet กรุณาตรวจสอบ Deploy permissions');
+          throw new Error("โครงสร้างข้อมูลในชีตว่างเปล่า");
         }
       } catch (err) {
         console.error("Sheets Fetch Error:", err);
-        if (syncStatus) syncStatus.innerText = 'เชื่อมต่อไม่สำเร็จ';
-        if (!isBackground) showToast('เชื่อมต่อล่าช้า: กำลังแสดงข้อมูลแคชเดิมแทน');
+        if (syncStatus) syncStatus.innerText = 'เชื่อมต่อไม่สำเร็จ (คลิกเพื่อแก้ไข)';
+        if (btnStatus) {
+          btnStatus.className = 'flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 text-xs font-semibold rounded-lg transition border border-rose-300 shadow-xs';
+        }
+        if (!isBackground) {
+          showToast('เชื่อมต่อไม่สำเร็จ: กรุณาตรวจสอบการตั้งค่า Deploy ของ Google Apps Script');
+        }
       } finally {
         if (btn) btn.innerHTML = `<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> <span>เชื่อมต่อและดึงข้อมูลสด</span>`;
         lucide.createIcons();
